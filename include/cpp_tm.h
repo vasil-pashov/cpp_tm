@@ -213,11 +213,11 @@ namespace CPPTM {
 		std::atomic<unsigned> barrierId;
 	};
 
-	ThreadManager::ThreadManager() :
+	inline ThreadManager::ThreadManager() :
 		ThreadManager(std::thread::hardware_concurrency()) {
 	}
 
-	ThreadManager::ThreadManager(int numThreads) :
+	inline ThreadManager::ThreadManager(int numThreads) :
 		barrier(numThreads) {
 		syncDone.test_and_set(std::memory_order::memory_order_release);
 		workes.reserve(numThreads);
@@ -226,7 +226,7 @@ namespace CPPTM {
 		}
 	}
 
-	ThreadManager::~ThreadManager() {
+	inline ThreadManager::~ThreadManager() {
 		TaskInfo abortBarrier = getBarrier(TaskInfo::Type::abort);
 		std::unique_lock l(taskMutex);
 		tasks.push(std::move(abortBarrier));
@@ -240,7 +240,7 @@ namespace CPPTM {
 		assert(tasks.empty());
 	}
 
-	void ThreadManager::threadLoop(int threadIndex) {
+	inline void ThreadManager::threadLoop(int threadIndex) {
 		do {
 			std::unique_lock l(taskMutex);
 			hasTasksCv.wait(l, [&]() {return tasks.size(); });
@@ -282,11 +282,11 @@ namespace CPPTM {
 		} while (true);
 	}
 
-	void ThreadManager::launchSync(std::shared_ptr<ITask> task) {
+	inline void ThreadManager::launchSync(std::shared_ptr<ITask> task) {
 		launchSync(task, workes.size());
 	}
 
-	void ThreadManager::launchSync(std::shared_ptr<ITask> task, int numBlocks) {
+	inline void ThreadManager::launchSync(std::shared_ptr<ITask> task, int numBlocks) {
 		std::unique_lock l(taskMutex);
 		for (int i = 0; i < numBlocks; ++i) {
 			TaskInfo ti(task, numBlocks, i);
@@ -301,11 +301,11 @@ namespace CPPTM {
 		assert(tasks.empty());
 	}
 
-	void ThreadManager::launchAsync(std::shared_ptr<ITask> task) {
+	inline void ThreadManager::launchAsync(std::shared_ptr<ITask> task) {
 		launchAsync(task, workes.size());
 	}
 
-	void ThreadManager::launchAsync(std::shared_ptr<ITask> task, int numBlocks) {
+	inline void ThreadManager::launchAsync(std::shared_ptr<ITask> task, int numBlocks) {
 		std::unique_lock l(taskMutex);
 		for (int i = 0; i < numBlocks; ++i) {
 			TaskInfo ti(task, numBlocks, i);
@@ -315,7 +315,7 @@ namespace CPPTM {
 		hasTasksCv.notify_all();
 	}
 
-	void ThreadManager::sync() {
+	inline void ThreadManager::sync() {
 		TaskInfo ti = getBarrier(TaskInfo::Type::barrier);
 		{
 			std::lock_guard l(taskMutex);
