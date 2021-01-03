@@ -25,7 +25,7 @@ public:
 	}
 
 	uint64_t reduce() const {
-		return std::accumulate(threadSum.begin(), threadSum.end(), 0);
+		return std::accumulate(threadSum.begin(), threadSum.end(), uint64_t(0));
 	}
 private:
 	std::vector<uint64_t> threadSum;
