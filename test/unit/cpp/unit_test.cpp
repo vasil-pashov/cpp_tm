@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <cpp_tm.h>
+#include <numeric>
 
 class MultithreadedSum final : public CPPTM::ITask {
 public:
@@ -11,7 +12,9 @@ public:
 	~MultithreadedSum() = default;
 
 	CPPTM::CPPTMStatus runTask(int blockIndex, int numBlocks) noexcept override {
-		if (!numBlocks) CPPTM::CPPTMStatus::SUCESS;
+		if (!numBlocks) {
+			return CPPTM::CPPTMStatus::SUCESS;
+		}
 		const uint64_t blockSize = (sumTo + numBlocks) / numBlocks;
 		const uint64_t start = blockSize * blockIndex;
 		const uint64_t end = std::min(sumTo, start + blockSize);
@@ -22,9 +25,7 @@ public:
 	}
 
 	uint64_t reduce() const {
-		uint64_t sum = 0;
-		for (uint64_t s : threadSum) sum += s;
-		return sum;
+		return std::accumulate(threadSum.begin(), threadSum.end(), 0);
 	}
 private:
 	std::vector<uint64_t> threadSum;
