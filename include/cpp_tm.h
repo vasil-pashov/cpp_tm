@@ -16,7 +16,7 @@ namespace CPPTM {
 	#define CPP_TM_PATCH_VERSION 0
 
 	enum class CPPTMStatus {
-		SUCESS = 0,
+		SUCCESS = 0,
 		ERROR
 	};
 

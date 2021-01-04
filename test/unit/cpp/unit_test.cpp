@@ -13,7 +13,7 @@ public:
 
 	CPPTM::CPPTMStatus runTask(int blockIndex, int numBlocks) noexcept override {
 		if (!numBlocks) {
-			return CPPTM::CPPTMStatus::SUCESS;
+			return CPPTM::CPPTMStatus::SUCCESS;
 		}
 		const uint64_t blockSize = (sumTo + numBlocks) / numBlocks;
 		const uint64_t start = blockSize * blockIndex;
@@ -21,7 +21,7 @@ public:
 		for (uint64_t i = start; i < end; ++i) {
 			threadSum[blockIndex] += i;
 		}
-		return CPPTM::CPPTMStatus::SUCESS;
+		return CPPTM::CPPTMStatus::SUCCESS;
 	}
 
 	uint64_t reduce() const {
