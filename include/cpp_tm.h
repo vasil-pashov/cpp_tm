@@ -86,23 +86,37 @@ namespace CPPTM {
 		/// IMPORTANT: It is NOT safe to call this from a worker thread.
 		/// This is the same as calling launchSync(task, getNumWorkers())
 		/// @param task The task which is going to be executed by the pool
-		void launchSync(std::shared_ptr<ITask> task);
+		void launchSync(const ITask& task);
 
 		/// @brief Run a task in the pool and wait it to finish. This will first execute all pending tasks, before executing the currently submitted one.
 		/// IMPORTANT: It is NOT safe to call this from a worker thread.
 		/// @param task The task which is going to be executed by the pool
 		/// @param numBlocks The number of blocks into which the task is going to be split
-		void launchSync(std::shared_ptr<ITask> task, int numBlocks);
+		void launchSync(const ITask& task, int numBlocks);
 
-		/// @brief Run a task in the pool and do not wait for it to finis. The thread which calls this is free to continue its job.
+		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job.
+		/// Use this signature when the task is dynamically allocated and the thread manager is supposed to handle the memory for it.
 		/// The number of blocks into which the task will be split is the same as the number of workers.
 		/// @param task The task which is going to be run asynchronously in the pool
 		void launchAsync(std::shared_ptr<ITask> task);
 
-		/// @brief Run a task in the pool and do not wait for it to finis. The thread which calls this is free to continue its job. 
+		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job. 
+		/// Use this signature when the task is dynamically allocated and the thread manager is supposed to handle the memory for it.
 		/// @param task The task which is going to be run asynchronously in the pool
 		/// @param numBlocks The number of blocks into which the task is going to be split
 		void launchAsync(std::shared_ptr<ITask> task, int numBlocks);
+
+		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job.
+		/// Use this signature when the caller handles the memory for the created task.
+		/// The number of blocks into which the task will be split is the same as the number of workers.
+		/// @param task The task which is going to be run asynchronously in the pool
+		void launchAsync(const ITask& task);
+
+		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job. 
+		/// Use this signature when the caller handles the memory for the created task.
+		/// @param task The task which is going to be run asynchronously in the pool
+		/// @param numBlocks The number of blocks into which the task is going to be split
+		void launchAsync(const ITask& task, int numBlocks);
 
 		/// @brief Wait for all pending tasks to finish.
 		/// IMPORTANT: It is NOT safe to call this from a worker thread.
@@ -160,6 +174,26 @@ namespace CPPTM {
 				unsigned blockIndex
 			) :
 				task(task),
+				numBlocks(numBlocks),
+				blockIndex(blockIndex)
+			{ }
+
+			TaskInfo(
+				const ITask& task,
+				unsigned numBlocks,
+				unsigned blockIndex
+			) :
+				task(const_cast<ITask*>(&task), [](const ITask* task) {}),
+				numBlocks(numBlocks),
+				blockIndex(blockIndex)
+			{ }
+
+			TaskInfo(
+				std::unique_ptr<ITask> task,
+				unsigned numBlocks,
+				unsigned blockIndex
+			) : 
+				task(std::move(task)),
 				numBlocks(numBlocks),
 				blockIndex(blockIndex)
 			{ }
@@ -282,15 +316,14 @@ namespace CPPTM {
 		} while (true);
 	}
 
-	inline void ThreadManager::launchSync(std::shared_ptr<ITask> task) {
+	inline void ThreadManager::launchSync(const ITask& task) {
 		launchSync(task, workes.size());
 	}
 
-	inline void ThreadManager::launchSync(std::shared_ptr<ITask> task, int numBlocks) {
+	inline void ThreadManager::launchSync(const ITask& task, int numBlocks) {
 		std::unique_lock l(taskMutex);
 		for (int i = 0; i < numBlocks; ++i) {
-			TaskInfo ti(task, numBlocks, i);
-			tasks.push(std::move(ti));
+			tasks.emplace(task, numBlocks, i);
 		}
 
 		tasks.push(std::move(getBarrier(TaskInfo::Type::barrier)));
@@ -308,12 +341,25 @@ namespace CPPTM {
 	inline void ThreadManager::launchAsync(std::shared_ptr<ITask> task, int numBlocks) {
 		std::unique_lock l(taskMutex);
 		for (int i = 0; i < numBlocks; ++i) {
-			TaskInfo ti(task, numBlocks, i);
-			tasks.push(std::move(ti));
+			tasks.emplace(task, numBlocks, i);
 		}
 		l.unlock();
 		hasTasksCv.notify_all();
 	}
+
+	inline void ThreadManager::launchAsync(const ITask& task) {
+		launchAsync(task, workes.size());
+	}
+
+	inline void ThreadManager::launchAsync(const ITask& task, int numBlocks) {
+		std::unique_lock l(taskMutex);
+		for (int i = 0; i < numBlocks; ++i) {
+			tasks.emplace(task, numBlocks, i);
+		}
+		l.unlock();
+		hasTasksCv.notify_all();
+	}
+
 
 	inline void ThreadManager::sync() {
 		TaskInfo ti = getBarrier(TaskInfo::Type::barrier);

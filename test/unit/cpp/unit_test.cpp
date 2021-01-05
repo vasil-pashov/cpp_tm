@@ -58,9 +58,9 @@ TEST(ThreadManagerBasic, SumEmpty) {
 		const int numWorkers = manager.getNumWorkers();
 		const uint64_t sumTo = 0;
 		const int numBlocks = 0;
-		std::shared_ptr sumJob = std::make_shared<MultithreadedSum>(numWorkers, sumTo);
+		MultithreadedSum sumJob(numWorkers, sumTo);
 		manager.launchSync(sumJob, numBlocks);
-		EXPECT_EQ(sumJob->reduce(), 0);
+		EXPECT_EQ(sumJob.reduce(), 0);
 	});
 
 }
@@ -71,10 +71,10 @@ TEST(ThreadManagerBasic, SumBlockSizeLessThanThreads) {
 		CPPTM::ThreadManager manager(numWorkers);
 		const uint64_t sumTo = 5;
 		const int numBlocks = 5;
-		std::shared_ptr sumJob = std::make_shared<MultithreadedSum>(numBlocks, sumTo);
+		MultithreadedSum sumJob(numBlocks, sumTo);
 		manager.launchSync(sumJob, numBlocks);
 		const uint64_t res = expectedSumResult(sumTo);
-		const uint64_t reduceRes = sumJob->reduce();
+		const uint64_t reduceRes = sumJob.reduce();
 		EXPECT_EQ(reduceRes, res);
 	});
 }
@@ -84,10 +84,10 @@ TEST(ThreadManagerBasic, SumDefaultBlockSize) {
 		CPPTM::ThreadManager manager;
 		const int numWorkers = manager.getNumWorkers();
 		const uint64_t sumTo = 999994;
-		std::shared_ptr sumJob = std::make_shared<MultithreadedSum>(numWorkers, sumTo);
+		MultithreadedSum sumJob(numWorkers, sumTo);
 		manager.launchSync(sumJob);
 		const uint64_t res = expectedSumResult(sumTo);
-		EXPECT_EQ(sumJob->reduce(), res);
+		EXPECT_EQ(sumJob.reduce(), res);
 	});
 }
 
@@ -97,11 +97,11 @@ TEST(ThreadManagerBasic, SumBlockSizeLargerThanThreads) {
 		CPPTM::ThreadManager manager(numWorkers);
 		const uint64_t sumTo = 1000003;
 		const int numBlocks = 100;
-		std::shared_ptr sumJob = std::make_shared<MultithreadedSum>(numBlocks, sumTo);
+		MultithreadedSum sumJob(numBlocks, sumTo);
 		EXPECT_GT(numBlocks, numWorkers);
 		manager.launchSync(sumJob, numBlocks);
 		const uint64_t res = expectedSumResult(sumTo);
-		EXPECT_EQ(sumJob->reduce(), res);
+		EXPECT_EQ(sumJob.reduce(), res);
 	});
 }
 
