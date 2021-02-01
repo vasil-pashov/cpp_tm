@@ -45,7 +45,7 @@ namespace CPPTM {
 		{ }
 		/// @brief Wait on the barrier. When Barrier::count call this all of them will be released.
 		void wait() {
-			std::unique_lock l(m);
+			std::unique_lock<std::mutex> l(m);
 			const unsigned myGeneration = generation;
 			if (--spaces == 0) {
 				spaces = count;
@@ -158,7 +158,7 @@ namespace CPPTM {
 
 		/// @brief Called by sync and launcSync. Waits all threads to reach the first barrier in the command queue.
 		void waitSyncToHappen() {
-			std::unique_lock lock(syncMut);
+			std::unique_lock<std::mutex> lock(syncMut);
 			syncCv.wait(lock, [&]() {return !syncDone.test_and_set(std::memory_order_acq_rel); });
 		}
 
@@ -256,7 +256,7 @@ namespace CPPTM {
 
 	inline ThreadManager::~ThreadManager() {
 		TaskInfo abortBarrier = getBarrier(TaskInfo::Type::abort);
-		std::unique_lock l(taskMutex);
+		std::unique_lock<std::mutex> l(taskMutex);
 		tasks.push(std::move(abortBarrier));
 		l.unlock();
 		hasTasksCv.notify_all();
@@ -270,7 +270,7 @@ namespace CPPTM {
 
 	inline void ThreadManager::threadLoop(int threadIndex) {
 		do {
-			std::unique_lock l(taskMutex);
+			std::unique_lock<std::mutex> l(taskMutex);
 			hasTasksCv.wait(l, [&]() {return tasks.size(); });
 
 			if (tasks.front().task) {
@@ -315,7 +315,7 @@ namespace CPPTM {
 	}
 
 	inline void ThreadManager::launchSync(ITask* const task, int numBlocks) {
-		std::unique_lock l(taskMutex);
+		std::unique_lock<std::mutex> l(taskMutex);
 		for (int i = 0; i < numBlocks; ++i) {
 			tasks.emplace(task, numBlocks, i);
 		}
@@ -333,7 +333,7 @@ namespace CPPTM {
 	}
 
 	inline void ThreadManager::launchAsync(ITask* const task, int numBlocks) {
-		std::unique_lock l(taskMutex);
+		std::unique_lock<std::mutex> l(taskMutex);
 		for (int i = 0; i < numBlocks; ++i) {
 			tasks.emplace(task, numBlocks, i);
 		}
@@ -346,7 +346,7 @@ namespace CPPTM {
 	}
 
 	inline void ThreadManager::launchAsync(std::unique_ptr<ITask> task, int numBlocks) {
-		std::unique_lock l(taskMutex);
+		std::unique_lock<std::mutex> l(taskMutex);
 		// Note this is not a memory leak as the class internally will commit suicide calling (delete this)
 		// when runTask was called numBlocks times. If the thread manager crashes, however the memory will leak.
 		ManagedTask* managed = new ManagedTask(std::move(task), numBlocks);
@@ -360,7 +360,7 @@ namespace CPPTM {
 	inline void ThreadManager::sync() {
 		TaskInfo ti = getBarrier(TaskInfo::Type::barrier);
 		{
-			std::lock_guard l(taskMutex);
+			std::lock_guard<std::mutex> l(taskMutex);
 			tasks.push(ti);
 		}
 		hasTasksCv.notify_all();
