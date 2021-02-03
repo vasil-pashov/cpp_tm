@@ -24,7 +24,7 @@ struct AddVectorsTask : public CPPTM::ITask {
 		res(res),
 		size(size)
 	{}
-	CPPTM::CPPTMStatus runTask(int blockIndex, int numBlocks) noexcept override {
+	CPPTM::CPPTMStatus runTask(const int blockIndex, const int numBlocks) noexcept override {
 		const int blockSize = (size + numBlocks) / numBlocks;
 		const int start = (size / numBlocks) * blockIndex;
 		const int end = std::min(start + blockSize, size);
@@ -54,8 +54,8 @@ tm.launchSync(&task);
 
 ## Create Task Class
 * Create a class and inherit `CPPTM::ITask`. 
-* Override `runTask(int blockIndex, int numBlocks) noexcept`. When the task is pushed to the thread manager it could be split into several blocks. Each of those
-will execute `runTasks` and will get as an input `numBlocks`(the total number of blocks into which the task was split) and `blockIndex` (the index for the current
+* Override `runTask(const int blockIndex, const int numBlocks) noexcept`. When the task is pushed to the thread manager it could be split into several blocks. Each of those
+will execute `runTask` and will get as an input `numBlocks`(the total number of blocks into which the task was split) and `blockIndex` (the index for the current
 block), where `blockIndex` varies between 0 and `numBlocks - 1`.
 
 ## Push Task to the Manager
