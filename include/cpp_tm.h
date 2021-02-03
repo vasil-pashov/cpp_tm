@@ -27,7 +27,7 @@ namespace CPPTM {
 		/// @param blockIndex The index of the block for this specific task which is executed by the pool
 		/// @param numBlocks Total number of blocks into which task was divided
 		/// @return CPPTMStatus from the task
-		virtual CPPTMStatus runTask(int blockIndex, int numBlocks) noexcept = 0;
+		virtual CPPTMStatus runTask(const int blockIndex, const int numBlocks) noexcept = 0;
 		virtual ~ITask() {}
 	};
 	/// @brief Thread barrier class.
