@@ -92,7 +92,7 @@ set these two CMake `CMAKE_PREFIX_PATH`, `CMAKE_MODULE_PATH` so that `find_packa
 to whatever `<path_to_build_folder>` was chosen in the step above, using absolute path is imperative. Note also that for building missing packages for `gtest` C++11 standard library is needed (libstdc++11).
 You might need to edit your default conan profile or create new profile.
 
-Generating and building project with unit tests is enabled by default. To disable it set `SMM_UNIT_TESTS` to `False`
+Generating and building project with unit tests is enabled by default. To disable it set `CPPTM_UNIT_TESTS` to `False`
 
 ## Using CMake find_package for Dependencies
 If you have `FindGTest.cmake` already existing, append the absolute path to the directory containing it to`CMAKE_PREFIX_PATH` and `CMAKE_MODULE_PATH`.
