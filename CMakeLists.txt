@@ -6,11 +6,64 @@ project(
 	DESCRIPTION "C++ thread manager using standard library threads." 
 )
 
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(${PROJECT_NAME} INTERFACE ./include/cpp_tm.h)
-target_include_directories(${PROJECT_NAME} INTERFACE ./include)
+target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_17)
+target_include_directories(
+	${PROJECT_NAME}
+	INTERFACE $<BUILD_INTERFACE:${${PROJECT_NAME}_SOURCE_DIR}/include>
+		  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+# CMAKE_INSTALL_LIBDIR CMAKE_INSTALL_LIBDIR CMAKE_INSTALL_BINDIR are provided by GNUInstallDirs
+# but they look reasonable for Windows too.
+install(TARGETS ${PROJECT_NAME}
+	# Creates and export which will be installed by calling install(EXPORT install(EXPORT ${PROJECT_NAME}_Targets
+	EXPORT ${PROJECT_NAME}_Targets 
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+write_basic_package_version_file(
+	"${PROJECT_NAME}ConfigVersion.cmake"
+	VERSION ${PROJECT_VERSION}
+	COMPATIBILITY SameMinorVersion
+)
+
+# Path where CMake will install *config.cmake files, which later will be used by find_package
+# CMAKE_INSTALL_DATAROOT is provided by GNUInstallDirs
+# For Windows, according CMake docs, the default paths are <prefix>/cmake
+if(NOT EXISTS ${CONFIG_INSTALL_DIR})
+	if(UNIX)
+		set(CONFIG_INSTALL_DIR ${CMAKE_INSTALL_DATAROOTDIR}/${PROJECT_NAME}/cmake)
+	else()
+		set(CONFIG_INSTALL_DIR ${PROJECT_NAME}/cmake)
+	endif()
+endif()
+
+configure_package_config_file(
+	"${PROJECT_SOURCE_DIR}/cmake/${PROJECT_NAME}Config.cmake.in" # template file path
+  	"${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake" # generated config file path
+	INSTALL_DESTINATION ${CONFIG_INSTALL_DIR} # destination to install the config, find_package must search for it here
+)
+
+install(EXPORT ${PROJECT_NAME}_Targets
+        FILE ${PROJECT_NAME}Targets.cmake
+        NAMESPACE ${PROJECT_NAME}::
+	DESTINATION ${CONFIG_INSTALL_DIR}
+)
+
+install(FILES "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+              "${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+	DESTINATION ${CONFIG_INSTALL_DIR}
+)
+
+install(FILES ${PROJECT_SOURCE_DIR}/include/cpp_tm.h DESTINATION include/cpp_tm)
 
 set(CPPTM_UNIT_TESTS ON CACHE BOOL "Should add unit test solution to the project")
 
