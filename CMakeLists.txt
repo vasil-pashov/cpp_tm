@@ -40,9 +40,9 @@ write_basic_package_version_file(
 # For Windows, according CMake docs, the default paths are <prefix>/cmake
 if(NOT EXISTS ${CONFIG_INSTALL_DIR})
 	if(UNIX)
-		set(CONFIG_INSTALL_DIR ${CMAKE_INSTALL_DATAROOTDIR}/${PROJECT_NAME}/cmake)
+		set(CONFIG_INSTALL_DIR ${CMAKE_INSTALL_DATAROOTDIR}/${PROJECT_NAME}/cmake CACHE STRING "Path where config files used by find_package will be installed, gets appended to CMAKE_INSTALL_PREFIX")
 	else()
-		set(CONFIG_INSTALL_DIR ${PROJECT_NAME}/cmake)
+		set(CONFIG_INSTALL_DIR ${PROJECT_NAME}/cmake CACHE STRING "Path where config files used by find_package will be installed, gets appended to CMAKE_INSTALL_PREFIX")
 	endif()
 endif()
 
