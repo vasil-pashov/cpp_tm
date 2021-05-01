@@ -75,18 +75,40 @@ namespace CPPTM {
 
 		~ThreadManager();
 
-		/// @brief Run a task in the pool and wait it to finish. This will first execute all pending tasks, before executing the currently submitted one.
+		/// @brief Run a task in the pool and wait it to finish. 
+		/// This will first execute all pending tasks, before executing the currently submitted one.
 		/// The number of blocks into which the task will be split is the same as the number of workers.
 		/// IMPORTANT: It is NOT safe to call this from a worker thread.
 		/// This is the same as calling launchSync(task, getNumWorkers())
 		/// @param task The task which is going to be executed by the pool
 		void launchSync(ITask* const task);
 
+		/// @brief Run a task in the pool and wait it to finish.
+		/// This will first execute all pending tasks, before executing the currently submitted one.
+		/// The number of blocks into which the task will be split is the same as the number of workers.
+		/// The task can be any arbitrary functor (e.g. function ptr, lambda, class) implementig operator(int, int)
+		/// @tparam TFunctor Type of the functor it must be void and take two int parameters. First is the current block index
+		/// and the second is the total number of blocks
+		/// @param[in] task The task wich is going to be executed by the pool
+		template<typename TFunctor>
+		void launchSync(TFunctor& task);
+
 		/// @brief Run a task in the pool and wait it to finish. This will first execute all pending tasks, before executing the currently submitted one.
 		/// IMPORTANT: It is NOT safe to call this from a worker thread.
 		/// @param task The task which is going to be executed by the pool
 		/// @param numBlocks The number of blocks into which the task is going to be split
 		void launchSync(ITask* const, int numBlocks);
+
+		/// @brief Run a task in the pool and wait it to finish.
+		/// This will first execute all pending tasks, before executing the currently submitted one.
+		/// The number of blocks into which the task will be split is the same as the number of workers.
+		/// The task can be any arbitrary functor (e.g. function ptr, lambda, class) implementig operator(int, int)
+		/// @tparam TFunctor Type of the functor it must be void and take two int parameters. First is the current block index
+		/// and the second is the total number of blocks
+		/// @param[in] task The task wich is going to be executed by the pool
+		/// @param numBlocks The number of blocks into which the task is going to be split
+		template<typename TFunctor>
+		void launchSync(TFunctor& task, int numBlocks);
 
 		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job.
 		/// Use this signature when the caller handles the memory for the created task.
@@ -139,6 +161,18 @@ namespace CPPTM {
 			std::unique_ptr<ITask> task;
 			std::atomic_int refCounter;
 		};
+
+		/// @brief Used to wrap functors which do not inherit from ITask (e.g. lambdas)
+		template<typename TFunctor>
+		struct TaskWrapper final : public ITask {
+			TaskWrapper(TFunctor& task) : task(task) {}
+			void runTask(int blockIndex, int numBlocks) noexcept override {
+				task(blockIndex, numBlocks);
+			}
+		private:
+			TFunctor& task;
+		};
+
 		/// @brief Main loop for each worker
 		/// @param threadIndex The index of the worker inside ThreadManager::workers array
 		void threadLoop(int threadIndex);
@@ -212,7 +246,8 @@ namespace CPPTM {
 
 		/// @brief Create a task barrier
 		/// @param type The type of the barrier (abort, barrier)
-		/// @return Task barrier which can be added to the pool. It will force all threads to reach this task before executing the tasks after this.
+		/// @return Task barrier which can be added to the pool.
+		/// It will force all threads to reach this task before executing the tasks after this.
 		TaskInfo getBarrier(TaskInfo::Type type) {
 			return TaskInfo(type, barrierId.fetch_add(1));
 		}
@@ -226,7 +261,8 @@ namespace CPPTM {
 		std::condition_variable syncCv; ///< Calls to sync and launchSync wait on this
 		std::mutex syncMut; ///< Used by syncCv
 		/// Used in the predicate of syncCv to avoid spurious wake. When the flag is set this means that there could be working threads
-		/// When the task barrier is reached this flag is cleared. The predicate of syncCv waits until the flag is cleared and sets it again after that.
+		/// When the task barrier is reached this flag is cleared. The predicate of syncCv waits until the flag is cleared and sets
+		/// it again after that.
 		std::atomic_flag syncDone = ATOMIC_FLAG_INIT;
 
 		/// When a barrier is put in the pool it takes the current barrierId as id and increments barrierId by one
@@ -305,6 +341,18 @@ namespace CPPTM {
 
 	inline void ThreadManager::launchSync(ITask* const task) {
 		launchSync(task, workes.size());
+	}
+
+	template<typename TFunctor>
+	inline void ThreadManager::launchSync(TFunctor& task) {
+		TaskWrapper<TFunctor> wrappedTask(task);
+		launchSync(&task);
+	}
+
+	template<typename TFunctor>
+	inline void ThreadManager::launchSync(TFunctor& task, int numBlocks) {
+		TaskWrapper<TFunctor> wrappedTask(task);
+		launchSync(&task, numBlocks);
 	}
 
 	inline void ThreadManager::launchSync(ITask* const task, int numBlocks) {
