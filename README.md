@@ -116,3 +116,15 @@ cmake --build . --config Release
 cd test/unit
 ctest
 ```
+
+# Install
+The library can be installed to the system, so that other cmake project can use it via the `fing_package` utility.
+```
+git clone https://github.com/vasil-pashov/cpp_tm.git
+cd cpp_tm
+mkdir build
+cmake -B"./build" -DCMAKE_BUILD_TYPE=Release -DCPPTM_UNIT_TESTS=OFF
+cd build
+sudo cmake --install ./
+```
+To change the install directories use `CMAKE_INSTALL_PREFIX` and `CONFIG_INSTALL_DIR` variables (if some nonstandard structure is needed). Where `CONFIG_INSTALL_DIR` gets appended to `CMAKE_INSTALL_PREFIX`.
