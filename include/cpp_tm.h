@@ -11,7 +11,7 @@
 namespace CPPTM {
 	
 	#define CPP_TM_MAJOR_VERSION 0
-	#define CPP_TM_MINOR_VERSION 1
+	#define CPP_TM_MINOR_VERSION 2
 	#define CPP_TM_PATCH_VERSION 0
 
 	enum class CPPTMStatus {
