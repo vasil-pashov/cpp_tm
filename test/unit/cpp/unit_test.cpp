@@ -31,6 +31,43 @@ private:
 	uint64_t sumTo;
 };
 
+class MultithreadedSumFunctor {
+public:
+	MultithreadedSumFunctor(int numBlocks, uint64_t sumTo) :
+		threadSum(numBlocks),
+		sumTo(sumTo) {
+	}
+
+	MultithreadedSumFunctor(const MultithreadedSumFunctor&) {
+		assert(false && "Should not be called");
+	}	
+
+	MultithreadedSumFunctor(MultithreadedSumFunctor&&) {
+		assert(false && "Should not be called");
+	}
+
+	~MultithreadedSumFunctor() = default;
+
+	void operator()(int blockIndex, int numBlocks) {
+		if (!numBlocks) {
+			return;
+		}
+		const uint64_t blockSize = (sumTo + numBlocks) / numBlocks;
+		const uint64_t start = blockSize * blockIndex;
+		const uint64_t end = std::min(sumTo, start + blockSize);
+		for (uint64_t i = start; i < end; ++i) {
+			threadSum[blockIndex] += i;
+		}
+	}
+
+	uint64_t reduce() const {
+		return std::accumulate(threadSum.begin(), threadSum.end(), uint64_t(0));
+	}
+private:
+	std::vector<uint64_t> threadSum;
+	uint64_t sumTo;
+};
+
 [[nodiscard]] static inline uint64_t expectedSumResult(uint64_t sumTo) {
 	return (sumTo - 1) * sumTo / 2;
 }
@@ -57,8 +94,8 @@ TEST(ThreadManagerBasic, SumEmpty) {
 		const int numWorkers = manager.getNumWorkers();
 		const uint64_t sumTo = 0;
 		const int numBlocks = 0;
-		MultithreadedSum sumJob(numWorkers, sumTo);
-		manager.launchSync(&sumJob, numBlocks);
+		MultithreadedSumFunctor sumJob(numWorkers, sumTo);
+		manager.launchSync(sumJob, numBlocks);
 		EXPECT_EQ(sumJob.reduce(), 0);
 	});
 
@@ -70,8 +107,8 @@ TEST(ThreadManagerBasic, SumBlockSizeLessThanThreads) {
 		CPPTM::ThreadManager manager(numWorkers);
 		const uint64_t sumTo = 5;
 		const int numBlocks = 5;
-		MultithreadedSum sumJob(numBlocks, sumTo);
-		manager.launchSync(&sumJob, numBlocks);
+		MultithreadedSumFunctor sumJob(numBlocks, sumTo);
+		manager.launchSync(sumJob, numBlocks);
 		const uint64_t res = expectedSumResult(sumTo);
 		const uint64_t reduceRes = sumJob.reduce();
 		EXPECT_EQ(reduceRes, res);
@@ -83,8 +120,8 @@ TEST(ThreadManagerBasic, SumDefaultBlockSize) {
 		CPPTM::ThreadManager manager;
 		const int numWorkers = manager.getNumWorkers();
 		const uint64_t sumTo = 999994;
-		MultithreadedSum sumJob(numWorkers, sumTo);
-		manager.launchSync(&sumJob);
+		MultithreadedSumFunctor sumJob(numWorkers, sumTo);
+		manager.launchSync(sumJob);
 		const uint64_t res = expectedSumResult(sumTo);
 		EXPECT_EQ(sumJob.reduce(), res);
 	});
@@ -96,9 +133,9 @@ TEST(ThreadManagerBasic, SumBlockSizeLargerThanThreads) {
 		CPPTM::ThreadManager manager(numWorkers);
 		const uint64_t sumTo = 1000003;
 		const int numBlocks = 100;
-		MultithreadedSum sumJob(numBlocks, sumTo);
+		MultithreadedSumFunctor sumJob(numBlocks, sumTo);
 		EXPECT_GT(numBlocks, numWorkers);
-		manager.launchSync(&sumJob, numBlocks);
+		manager.launchSync(sumJob, numBlocks);
 		const uint64_t res = expectedSumResult(sumTo);
 		EXPECT_EQ(sumJob.reduce(), res);
 	});

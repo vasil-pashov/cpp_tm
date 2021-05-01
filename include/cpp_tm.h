@@ -75,14 +75,6 @@ namespace CPPTM {
 
 		~ThreadManager();
 
-		/// @brief Run a task in the pool and wait it to finish. 
-		/// This will first execute all pending tasks, before executing the currently submitted one.
-		/// The number of blocks into which the task will be split is the same as the number of workers.
-		/// IMPORTANT: It is NOT safe to call this from a worker thread.
-		/// This is the same as calling launchSync(task, getNumWorkers())
-		/// @param task The task which is going to be executed by the pool
-		void launchSync(ITask* const task);
-
 		/// @brief Run a task in the pool and wait it to finish.
 		/// This will first execute all pending tasks, before executing the currently submitted one.
 		/// The number of blocks into which the task will be split is the same as the number of workers.
@@ -91,13 +83,7 @@ namespace CPPTM {
 		/// and the second is the total number of blocks
 		/// @param[in] task The task wich is going to be executed by the pool
 		template<typename TFunctor>
-		void launchSync(TFunctor& task);
-
-		/// @brief Run a task in the pool and wait it to finish. This will first execute all pending tasks, before executing the currently submitted one.
-		/// IMPORTANT: It is NOT safe to call this from a worker thread.
-		/// @param task The task which is going to be executed by the pool
-		/// @param numBlocks The number of blocks into which the task is going to be split
-		void launchSync(ITask* const, int numBlocks);
+		void launchSync(TFunctor&& task);
 
 		/// @brief Run a task in the pool and wait it to finish.
 		/// This will first execute all pending tasks, before executing the currently submitted one.
@@ -108,7 +94,7 @@ namespace CPPTM {
 		/// @param[in] task The task wich is going to be executed by the pool
 		/// @param numBlocks The number of blocks into which the task is going to be split
 		template<typename TFunctor>
-		void launchSync(TFunctor& task, int numBlocks);
+		void launchSync(TFunctor&& task, int numBlocks);
 
 		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job.
 		/// Use this signature when the caller handles the memory for the created task.
@@ -159,7 +145,7 @@ namespace CPPTM {
 		/// @brief Get the number of worker threads in the pool
 		/// @return Number of working threads in the pool
 		const int getNumWorkers() const {
-			return workes.size();
+			return workers.size();
 		}
 	private:
 		/// @brief Struct to wrap fire and forget tasks.
@@ -185,12 +171,16 @@ namespace CPPTM {
 		/// @brief Used to wrap functors which do not inherit from ITask (e.g. lambdas)
 		template<typename TFunctor>
 		struct TaskWrapper final : public ITask {
-			TaskWrapper(TFunctor& task) : task(task) {}
+			TaskWrapper(TFunctor&& task) :
+				task(std::forward<TFunctor>(task))
+			{
+
+			}
 			void runTask(int blockIndex, int numBlocks) noexcept override {
 				task(blockIndex, numBlocks);
 			}
 		private:
-			TFunctor& task;
+			TFunctor task;
 		};
 
 		/// @brief Main loop for each worker
@@ -272,7 +262,7 @@ namespace CPPTM {
 			return TaskInfo(type, barrierId.fetch_add(1));
 		}
 
-		std::vector<std::thread> workes; ///< All threads which are in the pool
+		std::vector<std::thread> workers; ///< All threads which are in the pool
 		std::condition_variable hasTasksCv; ///< Threads wait on this cv for task to be submitted into the pool
 		std::mutex taskMutex; ///< Used to synchronize adding and popping tasks from the task queue, hasTasksCv uses this
 		std::queue<TaskInfo> tasks; ///< Queue with tasks waiting to be computed by the workers in the pool
@@ -297,9 +287,9 @@ namespace CPPTM {
 	inline ThreadManager::ThreadManager(int numThreads) :
 		barrier(numThreads) {
 		syncDone.test_and_set(std::memory_order::memory_order_release);
-		workes.reserve(numThreads);
+		workers.reserve(numThreads);
 		for (int i = 0; i < numThreads; ++i) {
-			workes.emplace_back(&ThreadManager::threadLoop, this, i);
+			workers.emplace_back(&ThreadManager::threadLoop, this, i);
 		}
 	}
 
@@ -309,7 +299,7 @@ namespace CPPTM {
 		tasks.push(std::move(abortBarrier));
 		l.unlock();
 		hasTasksCv.notify_all();
-		for (std::thread& w : workes) {
+		for (std::thread& w : workers) {
 			if (w.joinable()) {
 				w.join();
 			}
@@ -359,26 +349,19 @@ namespace CPPTM {
 		} while (true);
 	}
 
-	inline void ThreadManager::launchSync(ITask* const task) {
-		launchSync(task, workes.size());
+
+
+	template<typename TFunctor>
+	inline void ThreadManager::launchSync(TFunctor&& task) {
+		launchSync(std::forward<TFunctor>(task), workers.size());
 	}
 
 	template<typename TFunctor>
-	inline void ThreadManager::launchSync(TFunctor& task) {
-		TaskWrapper<TFunctor> wrappedTask(task);
-		launchSync(&task);
-	}
-
-	template<typename TFunctor>
-	inline void ThreadManager::launchSync(TFunctor& task, int numBlocks) {
-		TaskWrapper<TFunctor> wrappedTask(task);
-		launchSync(&task, numBlocks);
-	}
-
-	inline void ThreadManager::launchSync(ITask* const task, int numBlocks) {
+	inline void ThreadManager::launchSync(TFunctor&& task, int numBlocks) {
+		TaskWrapper<TFunctor> wrappedTask(std::forward<TFunctor>(task));
 		std::unique_lock<std::mutex> l(taskMutex);
 		for (int i = 0; i < numBlocks; ++i) {
-			tasks.emplace(task, numBlocks, i);
+			tasks.emplace(&wrappedTask, numBlocks, i);
 		}
 
 		tasks.push(std::move(getBarrier(TaskInfo::Type::barrier)));
@@ -389,8 +372,9 @@ namespace CPPTM {
 		assert(tasks.empty());
 	}
 
+
 	inline void ThreadManager::launchAsync(ITask* const task) {
-		launchAsync(task, workes.size());
+		launchAsync(task, workers.size());
 	}
 
 	template<typename TFunctor>
@@ -415,7 +399,7 @@ namespace CPPTM {
 	}
 
 	inline void ThreadManager::launchAsync(std::unique_ptr<ITask> task) {
-		launchAsync(std::move(task), workes.size());
+		launchAsync(std::move(task), workers.size());
 	}
 
 	inline void ThreadManager::launchAsync(std::unique_ptr<ITask> task, int numBlocks) {
