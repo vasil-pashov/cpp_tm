@@ -11,9 +11,9 @@ public:
 
 	~MultithreadedSum() = default;
 
-	CPPTM::CPPTMStatus runTask(int blockIndex, int numBlocks) noexcept override {
+	void runTask(int blockIndex, int numBlocks) noexcept override {
 		if (!numBlocks) {
-			return CPPTM::CPPTMStatus::SUCCESS;
+			return;
 		}
 		const uint64_t blockSize = (sumTo + numBlocks) / numBlocks;
 		const uint64_t start = blockSize * blockIndex;
@@ -21,7 +21,6 @@ public:
 		for (uint64_t i = start; i < end; ++i) {
 			threadSum[blockIndex] += i;
 		}
-		return CPPTM::CPPTMStatus::SUCCESS;
 	}
 
 	uint64_t reduce() const {

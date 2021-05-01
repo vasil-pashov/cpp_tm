@@ -14,11 +14,6 @@ namespace CPPTM {
 	#define CPP_TM_MINOR_VERSION 2
 	#define CPP_TM_PATCH_VERSION 0
 
-	enum class CPPTMStatus {
-		SUCCESS = 0,
-		ERROR
-	};
-
 	/// @brief Abstract interface for a task which can be submitted to ThreadManager
 	class ITask {
 	public:
@@ -26,7 +21,7 @@ namespace CPPTM {
 		/// @param blockIndex The index of the block for this specific task which is executed by the pool
 		/// @param numBlocks Total number of blocks into which task was divided
 		/// @return CPPTMStatus from the task
-		virtual CPPTMStatus runTask(const int blockIndex, const int numBlocks) noexcept = 0;
+		virtual void runTask(const int blockIndex, const int numBlocks) noexcept = 0;
 		virtual ~ITask() {}
 	};
 	/// @brief Thread barrier class.
@@ -134,12 +129,11 @@ namespace CPPTM {
 				task(std::move(task)),
 				refCounter(initialRefs)
 			{ }
-			CPPTMStatus runTask(int blockIndex, int numBlocks) noexcept override {
+			void runTask(int blockIndex, int numBlocks) noexcept override {
 				task->runTask(blockIndex, numBlocks);
 				if (refCounter.fetch_sub(1, std::memory_order::memory_order_acq_rel) == 1) {
 					delete this;
 				}
-				return CPPTMStatus::SUCCESS;
 			}
 		private:
 			std::unique_ptr<ITask> task;
