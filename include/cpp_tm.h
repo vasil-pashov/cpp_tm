@@ -116,11 +116,31 @@ namespace CPPTM {
 		/// @param task The task which is going to be run asynchronously in the pool. The caller is obligated to manage the pointer.
 		void launchAsync(ITask* const task);
 
+		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job.
+		/// Use this signature when the caller handles the memory for the created task.
+		/// The number of blocks into which the task will be split is the same as the number of workers.
+		/// The task can be any arbitrary functor (e.g. function ptr, lambda, class) implementig operator(int, int)
+		/// @tparam TFunctor Type of the functor it must be void and take two int parameters. First is the current block index
+		/// and the second is the total number of blocks
+		/// @param task[in] The task which is going to be run asynchronously in the pool. The caller is obligated to manage the pointer.
+		template<typename TFunctor>
+		void launchAsync(TFunctor& task);
+
 		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job. 
 		/// Use this signature when the caller handles the memory for the created task.
 		/// @param task The task which is going to be run asynchronously in the pool. The caller is obligated to manage the pointer.
 		/// @param numBlocks The number of blocks into which the task is going to be split
 		void launchAsync(ITask* const task, int numBlocks);
+
+		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job. 
+		/// Use this signature when the caller handles the memory for the created task.
+		/// The task can be any arbitrary functor (e.g. function ptr, lambda, class) implementig operator(int, int)
+		/// @tparam TFunctor Type of the functor it must be void and take two int parameters. First is the current block index
+		/// and the second is the total number of blocks
+		/// @param task The task which is going to be run asynchronously in the pool. The caller is obligated to manage the pointer.
+		/// @param numBlocks The number of blocks into which the task is going to be split
+		template<typename TFunctor>
+		void launchAsync(TFunctor& task, int numBlocks);
 
 		/// @brief Launch "fire and forget" kind of task. The thread manager will manage the memory of the task and will delete it when done
 		/// The number of blocks into which the task will be split is the same as the number of workers.
@@ -373,6 +393,12 @@ namespace CPPTM {
 		launchAsync(task, workes.size());
 	}
 
+	template<typename TFunctor>
+	inline void ThreadManager::launchAsync(TFunctor& task) {
+		TaskWrapper<TFunctor> wrappedTask(task);
+		launchAsync(&wrappedTask);
+	}
+
 	inline void ThreadManager::launchAsync(ITask* const task, int numBlocks) {
 		std::unique_lock<std::mutex> l(taskMutex);
 		for (int i = 0; i < numBlocks; ++i) {
@@ -380,6 +406,12 @@ namespace CPPTM {
 		}
 		l.unlock();
 		hasTasksCv.notify_all();
+	}
+
+	template<typename TFunctor>
+	inline void ThreadManager::launchAsync(TFunctor& task, int numBlocks) {
+		TaskWrapper<TFunctor> wrappedTask(task);
+		launchAsync(&wrappedTask, numBlocks);
 	}
 
 	inline void ThreadManager::launchAsync(std::unique_ptr<ITask> task) {
