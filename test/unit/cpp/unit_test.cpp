@@ -124,3 +124,69 @@ TEST(ThreadManagerBasic, SumAsync) {
 		EXPECT_EQ(sumJob.reduce(), res);
 	});
 }
+
+TEST(ThreadManagerBasic, AddVectorsFunctorClass) {
+	// Define the input data
+	const int sz = 1000;
+	int a[sz], b[sz], c[sz];
+	// Fill the arrays somehow
+	for(int i = 0; i < sz; ++i) {
+		a[i] = i;
+		b[i] = sz + i;
+	}
+	// Inherit from CPPTM::ITask and override runTask
+	struct AddVectorsTask {
+		AddVectorsTask(int* a, int* b, int* res, int size) : 
+			a(a),
+			b(b),
+			res(res),
+			size(size)
+		{}
+		void operator()(const int blockIndex, const int numBlocks) noexcept {
+			const int blockSize = (size + numBlocks) / numBlocks;
+			const int start = (size / numBlocks) * blockIndex;
+			const int end = std::min(start + blockSize, size);
+			for(int i = start; i < end; ++i) {
+				res[i] = a[i] + b[i];
+			}
+		}
+		int* a;
+		int* b;
+		int* res;
+		int size;
+	};
+	// Create a task instance
+	AddVectorsTask task(a, b, c, sz);
+	repeatTest(numReps, [&](){
+		CPPTM::ThreadManager manager;
+		manager.launchSync(task);
+		for(int i = 0; i < sz; ++i) {
+			ASSERT_EQ(c[i], a[i] + b[i]);
+		}
+	});
+}
+
+TEST(ThreadManagerBasic, AddVectorsLambda) {
+	// Define the input data
+	const int sz = 1000;
+	int a[sz], b[sz], c[sz];
+	// Fill the arrays somehow
+	for(int i = 0; i < sz; ++i) {
+		a[i] = i;
+		b[i] = sz + i;
+	}
+	repeatTest(numReps, [&](){
+		CPPTM::ThreadManager manager;
+		manager.launchSync([&](const int blockIndex, const int numBlocks){
+			const int blockSize = (sz + numBlocks) / numBlocks;
+			const int start = (sz / numBlocks) * blockIndex;
+			const int end = std::min(start + blockSize, sz);
+			for(int i = start; i < end; ++i) {
+				c[i] = a[i] + b[i];
+			}
+		});
+		for(int i = 0; i < sz; ++i) {
+			ASSERT_EQ(c[i], a[i] + b[i]);
+		}
+	});
+}

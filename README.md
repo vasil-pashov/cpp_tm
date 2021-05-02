@@ -16,22 +16,21 @@ for(int i = 0; i < sz; ++i) {
 	a[i] = i;
 	b[i] = sz + i;
 }
-// Inherit from CPPTM::ITask and override runTask
-struct AddVectorsTask : public CPPTM::ITask {
+// Create a functor class implementing operator()(int blockIndex, int numBlocks)
+struct AddVectorsTask {
 	AddVectorsTask(int* a, int* b, int* res, int size) : 
 		a(a),
 		b(b),
 		res(res),
 		size(size)
 	{}
-	CPPTM::CPPTMStatus runTask(const int blockIndex, const int numBlocks) noexcept override {
+	void operator()(const int blockIndex, const int numBlocks) noexcept {
 		const int blockSize = (size + numBlocks) / numBlocks;
 		const int start = (size / numBlocks) * blockIndex;
 		const int end = std::min(start + blockSize, size);
 		for(int i = start; i < end; ++i) {
 			res[i] = a[i] + b[i];
 		}
-		return CPPTM::CPPTMStatus::SUCCESS;
 	}
 	int* a;
 	int* b;
@@ -43,7 +42,18 @@ AddVectorsTask task(a, b, c, sz);
 // Create the thread manager
 CPPTM::ThreadManager tm;
 // Push the task to the manager
-tm.launchSync(&task);
+tm.launchSync(task);
+
+// Also possible do it with a lambda
+// Pass lambda to the thread manager
+tm.launchSync([&](const int blockIndex, const int numBlocks){
+	const int blockSize = (size + numBlocks) / numBlocks;
+	const int start = (size / numBlocks) * blockIndex;
+	const int end = std::min(start + blockSize, size);
+	for(int i = start; i < end; ++i) {
+		c[i] = a[i] + b[i];
+	}
+})
 ```
 ## Initialize
 * Use default constructor `CPPTM::ThreadManager::ThreadManager(void)` and let the library choose how many threads to spawn.
@@ -52,27 +62,22 @@ tm.launchSync(&task);
 * Use `CPPTM::getGlobalTM(void)` to get a "global manager". It is created the first time the function is called, subsequent calls return reference to it.
   The global manager is created via `CPPTM::ThreadManager::ThreadManager(void)`.
 
-## Create Task Class
-* Create a class and inherit `CPPTM::ITask`. 
-* Override `runTask(const int blockIndex, const int numBlocks) noexcept`. When the task is pushed to the thread manager it could be split into several blocks. Each of those
-will execute `runTask` and will get as an input `numBlocks`(the total number of blocks into which the task was split) and `blockIndex` (the index for the current
-block), where `blockIndex` varies between 0 and `numBlocks - 1`.
+## Create a task
+The task manager accepts arbitrary functors on which `operator()(int blockIndex, int numBlocks)` can be called. It includes: function refs, classes implementing `operator()(int blockIndex, int numBlocks)`, lambdas. When the task is pushed to the thread manager it could be split into several blocks. Each of those will execute `operator()(int blockIndex, int numBlocks)` and will get as an input `numBlocks`(the total number of blocks into which the task was split) and `blockIndex` (the index for the current block), where `blockIndex` varies between 0 and `numBlocks - 1`.
 
 ## Push Task to the Manager
 ### Sync
-* `CPPTM::ThreadManager::launchSync(ITask* const task)` will split the task into number of blocks equal to the number of spawned threads. The caller
+* `CPPTM::ThreadManager::launchSync<T>(T&& task)` will split the task into number of blocks equal to the number of spawned threads. The caller
 will sleep until the task is finished. If there are pending tasks in the manager they will be executed first.
-* `CPPTM::ThreadManager::launchSync(ITask* const task, int numBlocks)` will split the task into `numBlocks` blocks.
+* `CPPTM::ThreadManager::launchSync<T>(T&& task, int numBlocks)` will split the task into `numBlocks` blocks.
 The caller will sleep until the task is finished. If there are pending tasks in the manager they will be executed first.
 `numBlocks` can be any positive number (it could be larger than the number of spawned threads).
 ### Async
-* `CPPTM::ThreadManager::launchAsync(ITask* const task)` will split the task into number of blocks equal to the number of spawned threads.
+* `CPPTM::ThreadManager::launchAsync<T>(T&& task)` will split the task into number of blocks equal to the number of spawned threads.
 The caller will continue executing without waiting for the task to finish. If there are pending tasks in the manager they will be executed first.
-* `CPPTM::ThreadManager::launchAsync(ITask* const task, int numBlocks)` will split the task into `numBlocks` blocks.
+* `CPPTM::ThreadManager::launchAsync<T>(T&& task, int numBlocks)` will split the task into `numBlocks` blocks.
 The caller will continue executing without waiting for the task to finish. If there are pending tasks in the manager they will be executed first.
 `numBlocks` can be any positive number (it could be larger than the number of spawned threads).
-* `CPPTM::ThreadManager::launchAsync(std::unique_ptr<ITask> task);` and `CPPTM::ThreadManager::launchAsync(std::unique_ptr<ITask> task, int numBlocks);`
-are the same as the above except that the thread manager will deallocate the task when the task is completed.
 
 # Dependencies
 * Compiler supporting C++11
