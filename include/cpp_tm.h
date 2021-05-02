@@ -14,21 +14,6 @@ namespace CPPTM {
 	#define CPP_TM_MINOR_VERSION 2
 	#define CPP_TM_PATCH_VERSION 0
 
-	enum class CPPTMStatus {
-		SUCCESS = 0,
-		ERROR
-	};
-
-	/// @brief Abstract interface for a task which can be submitted to ThreadManager
-	class ITask {
-	public:
-		/// @brief Function which will be called when the thread pool reaches this task
-		/// @param blockIndex The index of the block for this specific task which is executed by the pool
-		/// @param numBlocks Total number of blocks into which task was divided
-		/// @return CPPTMStatus from the task
-		virtual CPPTMStatus runTask(const int blockIndex, const int numBlocks) noexcept = 0;
-		virtual ~ITask() {}
-	};
 	/// @brief Thread barrier class.
 	/// It is initialized with the number of threads which could wait on the barrier
 	/// When a thread calls Barrier::wait it will wait on the barrier until the count
@@ -80,40 +65,44 @@ namespace CPPTM {
 
 		~ThreadManager();
 
-		/// @brief Run a task in the pool and wait it to finish. This will first execute all pending tasks, before executing the currently submitted one.
+		/// @brief Run a task in the pool and wait it to finish.
+		/// This will first execute all pending tasks, before executing the currently submitted one.
 		/// The number of blocks into which the task will be split is the same as the number of workers.
-		/// IMPORTANT: It is NOT safe to call this from a worker thread.
-		/// This is the same as calling launchSync(task, getNumWorkers())
-		/// @param task The task which is going to be executed by the pool
-		void launchSync(ITask* const task);
+		/// The task can be any arbitrary functor (e.g. function ptr, lambda, class) implementig operator(int, int)
+		/// @tparam TFunctor Type of the functor it must be void and take two int parameters. First is the current block index
+		/// and the second is the total number of blocks
+		/// @param[in] task The task wich is going to be executed by the pool
+		template<typename TFunctor>
+		void launchSync(TFunctor&& task);
 
-		/// @brief Run a task in the pool and wait it to finish. This will first execute all pending tasks, before executing the currently submitted one.
-		/// IMPORTANT: It is NOT safe to call this from a worker thread.
-		/// @param task The task which is going to be executed by the pool
+		/// @brief Run a task in the pool and wait it to finish.
+		/// This will first execute all pending tasks, before executing the currently submitted one.
+		/// The number of blocks into which the task will be split is the same as the number of workers.
+		/// The task can be any arbitrary functor (e.g. function ptr, lambda, class) implementig operator(int, int)
+		/// @tparam TFunctor Type of the functor it must be void and take two int parameters. First is the current block index
+		/// and the second is the total number of blocks
+		/// @param[in] task The task wich is going to be executed by the pool
 		/// @param numBlocks The number of blocks into which the task is going to be split
-		void launchSync(ITask* const, int numBlocks);
+		template<typename TFunctor>
+		void launchSync(TFunctor&& task, int numBlocks);
 
 		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job.
-		/// Use this signature when the caller handles the memory for the created task.
 		/// The number of blocks into which the task will be split is the same as the number of workers.
-		/// @param task The task which is going to be run asynchronously in the pool. The caller is obligated to manage the pointer.
-		void launchAsync(ITask* const task);
+		/// The task can be any arbitrary functor (e.g. function ptr, lambda, class) implementig operator(int, int)
+		/// @tparam TFunctor Type of the functor it must be void and take two int parameters. First is the current block index
+		/// and the second is the total number of blocks
+		/// @param task[in] The task which is going to be run asynchronously in the pool. The caller is obligated to manage the pointer.
+		template<typename TFunctor>
+		void launchAsync(TFunctor&& task);
 
 		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job. 
-		/// Use this signature when the caller handles the memory for the created task.
+		/// The task can be any arbitrary functor (e.g. function ptr, lambda, class) implementig operator(int, int)
+		/// @tparam TFunctor Type of the functor it must be void and take two int parameters. First is the current block index
+		/// and the second is the total number of blocks
 		/// @param task The task which is going to be run asynchronously in the pool. The caller is obligated to manage the pointer.
 		/// @param numBlocks The number of blocks into which the task is going to be split
-		void launchAsync(ITask* const task, int numBlocks);
-
-		/// @brief Launch "fire and forget" kind of task. The thread manager will manage the memory of the task and will delete it when done
-		/// The number of blocks into which the task will be split is the same as the number of workers.
-		/// @param task The task which is going to be run asynchronously in the pool. The thread manager is obligated to manage the pointer.
-		void launchAsync(std::unique_ptr<ITask> task);
-
-		/// @brief Launch "fire and forget" kind of task. The thread manager will manage the memory of the task and will delete it when done
-		/// The number of blocks into which the task will be split is the same as the number of workers.
-		/// @param task The task which is going to be run asynchronously in the pool. The thread manager is obligated to manage the pointer.
-		void launchAsync(std::unique_ptr<ITask> task, int numBlocks);
+		template<typename TFunctor>
+		void launchAsync(TFunctor&& task, int numBlocks);
 
 		/// @brief Wait for all pending tasks to finish.
 		/// IMPORTANT: It is NOT safe to call this from a worker thread.
@@ -122,29 +111,56 @@ namespace CPPTM {
 		/// @brief Get the number of worker threads in the pool
 		/// @return Number of working threads in the pool
 		const int getNumWorkers() const {
-			return workes.size();
+			return workers.size();
 		}
 	private:
+		/// @brief Abstract interface for a task which can be submitted to ThreadManager
+		class ITask {
+		public:
+			/// @brief Function which will be called when the thread pool reaches this task
+			/// @param blockIndex The index of the block for this specific task which is executed by the pool
+			/// @param numBlocks Total number of blocks into which task was divided
+			/// @return CPPTMStatus from the task
+			virtual void runTask(const int blockIndex, const int numBlocks) noexcept = 0;
+			virtual ~ITask() {}
+		};	
+
 		/// @brief Struct to wrap fire and forget tasks.
 		/// It is safe to pass (only) pointers to ManagedTask to the thread manager (only when the manager created them)
 		/// On run task it will execute the nested task and decrement the ref counter. The last one will delete the object
 		/// Only heap allocated pointers to ManagedTask should be passed to the thread manager queue
+		template<typename TFunctor>
 		struct ManagedTask final : public ITask {
-			ManagedTask(std::unique_ptr<ITask> task, const int initialRefs) :
-				task(std::move(task)),
+			ManagedTask(TFunctor&& task, const int initialRefs) :
+				task(std::forward<TFunctor>(task)),
 				refCounter(initialRefs)
 			{ }
-			CPPTMStatus runTask(int blockIndex, int numBlocks) noexcept override {
-				task->runTask(blockIndex, numBlocks);
+			void runTask(int blockIndex, int numBlocks) noexcept override {
+				task(blockIndex, numBlocks);
 				if (refCounter.fetch_sub(1, std::memory_order::memory_order_acq_rel) == 1) {
 					delete this;
 				}
-				return CPPTMStatus::SUCCESS;
 			}
 		private:
-			std::unique_ptr<ITask> task;
+			TFunctor task;
 			std::atomic_int refCounter;
 		};
+
+		/// @brief Used to wrap functors which do not inherit from ITask (e.g. lambdas)
+		template<typename TFunctor>
+		struct TaskWrapper final : public ITask {
+			TaskWrapper(TFunctor&& task) :
+				task(std::forward<TFunctor>(task))
+			{
+
+			}
+			void runTask(int blockIndex, int numBlocks) noexcept override {
+				task(blockIndex, numBlocks);
+			}
+		private:
+			TFunctor task;
+		};
+
 		/// @brief Main loop for each worker
 		/// @param threadIndex The index of the worker inside ThreadManager::workers array
 		void threadLoop(int threadIndex);
@@ -218,12 +234,13 @@ namespace CPPTM {
 
 		/// @brief Create a task barrier
 		/// @param type The type of the barrier (abort, barrier)
-		/// @return Task barrier which can be added to the pool. It will force all threads to reach this task before executing the tasks after this.
+		/// @return Task barrier which can be added to the pool.
+		/// It will force all threads to reach this task before executing the tasks after this.
 		TaskInfo getBarrier(TaskInfo::Type type) {
 			return TaskInfo(type, barrierId.fetch_add(1));
 		}
 
-		std::vector<std::thread> workes; ///< All threads which are in the pool
+		std::vector<std::thread> workers; ///< All threads which are in the pool
 		std::condition_variable hasTasksCv; ///< Threads wait on this cv for task to be submitted into the pool
 		std::mutex taskMutex; ///< Used to synchronize adding and popping tasks from the task queue, hasTasksCv uses this
 		std::queue<TaskInfo> tasks; ///< Queue with tasks waiting to be computed by the workers in the pool
@@ -232,7 +249,8 @@ namespace CPPTM {
 		std::condition_variable syncCv; ///< Calls to sync and launchSync wait on this
 		std::mutex syncMut; ///< Used by syncCv
 		/// Used in the predicate of syncCv to avoid spurious wake. When the flag is set this means that there could be working threads
-		/// When the task barrier is reached this flag is cleared. The predicate of syncCv waits until the flag is cleared and sets it again after that.
+		/// When the task barrier is reached this flag is cleared. The predicate of syncCv waits until the flag is cleared and sets
+		/// it again after that.
 		std::atomic_flag syncDone = ATOMIC_FLAG_INIT;
 
 		/// When a barrier is put in the pool it takes the current barrierId as id and increments barrierId by one
@@ -244,12 +262,14 @@ namespace CPPTM {
 		ThreadManager(std::thread::hardware_concurrency()) {
 	}
 
-	inline ThreadManager::ThreadManager(int numThreads) :
-		barrier(numThreads) {
+	inline ThreadManager::ThreadManager(int numThreads) : 
+		barrier(numThreads),
+		barrierId(0)
+	{
 		syncDone.test_and_set(std::memory_order::memory_order_release);
-		workes.reserve(numThreads);
+		workers.reserve(numThreads);
 		for (int i = 0; i < numThreads; ++i) {
-			workes.emplace_back(&ThreadManager::threadLoop, this, i);
+			workers.emplace_back(&ThreadManager::threadLoop, this, i);
 		}
 	}
 
@@ -259,7 +279,7 @@ namespace CPPTM {
 		tasks.push(std::move(abortBarrier));
 		l.unlock();
 		hasTasksCv.notify_all();
-		for (std::thread& w : workes) {
+		for (std::thread& w : workers) {
 			if (w.joinable()) {
 				w.join();
 			}
@@ -309,14 +329,19 @@ namespace CPPTM {
 		} while (true);
 	}
 
-	inline void ThreadManager::launchSync(ITask* const task) {
-		launchSync(task, workes.size());
+
+
+	template<typename TFunctor>
+	inline void ThreadManager::launchSync(TFunctor&& task) {
+		launchSync(std::forward<TFunctor>(task), workers.size());
 	}
 
-	inline void ThreadManager::launchSync(ITask* const task, int numBlocks) {
+	template<typename TFunctor>
+	inline void ThreadManager::launchSync(TFunctor&& task, int numBlocks) {
+		TaskWrapper<TFunctor> wrappedTask(std::forward<TFunctor>(task));
 		std::unique_lock<std::mutex> l(taskMutex);
 		for (int i = 0; i < numBlocks; ++i) {
-			tasks.emplace(task, numBlocks, i);
+			tasks.emplace(&wrappedTask, numBlocks, i);
 		}
 
 		tasks.push(std::move(getBarrier(TaskInfo::Type::barrier)));
@@ -327,28 +352,18 @@ namespace CPPTM {
 		assert(tasks.empty());
 	}
 
-	inline void ThreadManager::launchAsync(ITask* const task) {
-		launchAsync(task, workes.size());
+
+	template<typename TFunctor>
+	inline void ThreadManager::launchAsync(TFunctor&& task) {
+		launchAsync(std::forward<TFunctor>(task), workers.size());
 	}
 
-	inline void ThreadManager::launchAsync(ITask* const task, int numBlocks) {
-		std::unique_lock<std::mutex> l(taskMutex);
-		for (int i = 0; i < numBlocks; ++i) {
-			tasks.emplace(task, numBlocks, i);
-		}
-		l.unlock();
-		hasTasksCv.notify_all();
-	}
-
-	inline void ThreadManager::launchAsync(std::unique_ptr<ITask> task) {
-		launchAsync(std::move(task), workes.size());
-	}
-
-	inline void ThreadManager::launchAsync(std::unique_ptr<ITask> task, int numBlocks) {
+	template<typename TFunctor>
+	inline void ThreadManager::launchAsync(TFunctor&& task, int numBlocks) {
 		std::unique_lock<std::mutex> l(taskMutex);
 		// Note this is not a memory leak as the class internally will commit suicide calling (delete this)
 		// when runTask was called numBlocks times. If the thread manager crashes, however the memory will leak.
-		ManagedTask* managed = new ManagedTask(std::move(task), numBlocks);
+		ManagedTask<TFunctor>* managed = new ManagedTask<TFunctor>(std::forward<TFunctor>(task), numBlocks);
 		for (int i = 0; i < numBlocks; ++i) {
 			tasks.emplace(managed, numBlocks, i);
 		}

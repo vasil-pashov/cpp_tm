@@ -2,18 +2,26 @@
 #include <cpp_tm.h>
 #include <numeric>
 
-class MultithreadedSum final : public CPPTM::ITask {
+class MultithreadedSumFunctor {
 public:
-	MultithreadedSum(int numBlocks, uint64_t sumTo) :
+	MultithreadedSumFunctor(int numBlocks, uint64_t sumTo) :
 		threadSum(numBlocks),
 		sumTo(sumTo) {
 	}
 
-	~MultithreadedSum() = default;
+	MultithreadedSumFunctor(const MultithreadedSumFunctor&) {
+		assert(false && "Should not be called");
+	}	
 
-	CPPTM::CPPTMStatus runTask(int blockIndex, int numBlocks) noexcept override {
+	MultithreadedSumFunctor(MultithreadedSumFunctor&&) {
+		assert(false && "Should not be called");
+	}
+
+	~MultithreadedSumFunctor() = default;
+
+	void operator()(int blockIndex, int numBlocks) {
 		if (!numBlocks) {
-			return CPPTM::CPPTMStatus::SUCCESS;
+			return;
 		}
 		const uint64_t blockSize = (sumTo + numBlocks) / numBlocks;
 		const uint64_t start = blockSize * blockIndex;
@@ -21,7 +29,6 @@ public:
 		for (uint64_t i = start; i < end; ++i) {
 			threadSum[blockIndex] += i;
 		}
-		return CPPTM::CPPTMStatus::SUCCESS;
 	}
 
 	uint64_t reduce() const {
@@ -58,8 +65,8 @@ TEST(ThreadManagerBasic, SumEmpty) {
 		const int numWorkers = manager.getNumWorkers();
 		const uint64_t sumTo = 0;
 		const int numBlocks = 0;
-		MultithreadedSum sumJob(numWorkers, sumTo);
-		manager.launchSync(&sumJob, numBlocks);
+		MultithreadedSumFunctor sumJob(numWorkers, sumTo);
+		manager.launchSync(sumJob, numBlocks);
 		EXPECT_EQ(sumJob.reduce(), 0);
 	});
 
@@ -71,8 +78,8 @@ TEST(ThreadManagerBasic, SumBlockSizeLessThanThreads) {
 		CPPTM::ThreadManager manager(numWorkers);
 		const uint64_t sumTo = 5;
 		const int numBlocks = 5;
-		MultithreadedSum sumJob(numBlocks, sumTo);
-		manager.launchSync(&sumJob, numBlocks);
+		MultithreadedSumFunctor sumJob(numBlocks, sumTo);
+		manager.launchSync(sumJob, numBlocks);
 		const uint64_t res = expectedSumResult(sumTo);
 		const uint64_t reduceRes = sumJob.reduce();
 		EXPECT_EQ(reduceRes, res);
@@ -84,8 +91,8 @@ TEST(ThreadManagerBasic, SumDefaultBlockSize) {
 		CPPTM::ThreadManager manager;
 		const int numWorkers = manager.getNumWorkers();
 		const uint64_t sumTo = 999994;
-		MultithreadedSum sumJob(numWorkers, sumTo);
-		manager.launchSync(&sumJob);
+		MultithreadedSumFunctor sumJob(numWorkers, sumTo);
+		manager.launchSync(sumJob);
 		const uint64_t res = expectedSumResult(sumTo);
 		EXPECT_EQ(sumJob.reduce(), res);
 	});
@@ -97,9 +104,9 @@ TEST(ThreadManagerBasic, SumBlockSizeLargerThanThreads) {
 		CPPTM::ThreadManager manager(numWorkers);
 		const uint64_t sumTo = 1000003;
 		const int numBlocks = 100;
-		MultithreadedSum sumJob(numBlocks, sumTo);
+		MultithreadedSumFunctor sumJob(numBlocks, sumTo);
 		EXPECT_GT(numBlocks, numWorkers);
-		manager.launchSync(&sumJob, numBlocks);
+		manager.launchSync(sumJob, numBlocks);
 		const uint64_t res = expectedSumResult(sumTo);
 		EXPECT_EQ(sumJob.reduce(), res);
 	});
@@ -110,10 +117,76 @@ TEST(ThreadManagerBasic, SumAsync) {
 		CPPTM::ThreadManager manager;
 		const int numWorkers = manager.getNumWorkers();
 		const uint64_t sumTo = 999994;
-		MultithreadedSum sumJob(numWorkers, sumTo);
-		manager.launchAsync(&sumJob);
+		MultithreadedSumFunctor sumJob(numWorkers, sumTo);
+		manager.launchAsync(sumJob);
 		manager.sync();
 		const uint64_t res = expectedSumResult(sumTo);
 		EXPECT_EQ(sumJob.reduce(), res);
+	});
+}
+
+TEST(ThreadManagerBasic, AddVectorsFunctorClass) {
+	// Define the input data
+	const int sz = 1000;
+	int a[sz], b[sz], c[sz];
+	// Fill the arrays somehow
+	for(int i = 0; i < sz; ++i) {
+		a[i] = i;
+		b[i] = sz + i;
+	}
+	// Inherit from CPPTM::ITask and override runTask
+	struct AddVectorsTask {
+		AddVectorsTask(int* a, int* b, int* res, int size) : 
+			a(a),
+			b(b),
+			res(res),
+			size(size)
+		{}
+		void operator()(const int blockIndex, const int numBlocks) noexcept {
+			const int blockSize = (size + numBlocks) / numBlocks;
+			const int start = (size / numBlocks) * blockIndex;
+			const int end = std::min(start + blockSize, size);
+			for(int i = start; i < end; ++i) {
+				res[i] = a[i] + b[i];
+			}
+		}
+		int* a;
+		int* b;
+		int* res;
+		int size;
+	};
+	// Create a task instance
+	AddVectorsTask task(a, b, c, sz);
+	repeatTest(numReps, [&](){
+		CPPTM::ThreadManager manager;
+		manager.launchSync(task);
+		for(int i = 0; i < sz; ++i) {
+			ASSERT_EQ(c[i], a[i] + b[i]);
+		}
+	});
+}
+
+TEST(ThreadManagerBasic, AddVectorsLambda) {
+	// Define the input data
+	const int sz = 1000;
+	int a[sz], b[sz], c[sz];
+	// Fill the arrays somehow
+	for(int i = 0; i < sz; ++i) {
+		a[i] = i;
+		b[i] = sz + i;
+	}
+	repeatTest(numReps, [&](){
+		CPPTM::ThreadManager manager;
+		manager.launchSync([&](const int blockIndex, const int numBlocks){
+			const int blockSize = (sz + numBlocks) / numBlocks;
+			const int start = (sz / numBlocks) * blockIndex;
+			const int end = std::min(start + blockSize, sz);
+			for(int i = start; i < end; ++i) {
+				c[i] = a[i] + b[i];
+			}
+		});
+		for(int i = 0; i < sz; ++i) {
+			ASSERT_EQ(c[i], a[i] + b[i]);
+		}
 	});
 }
