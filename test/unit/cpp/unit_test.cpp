@@ -2,35 +2,6 @@
 #include <cpp_tm.h>
 #include <numeric>
 
-class MultithreadedSum final : public CPPTM::ITask {
-public:
-	MultithreadedSum(int numBlocks, uint64_t sumTo) :
-		threadSum(numBlocks),
-		sumTo(sumTo) {
-	}
-
-	~MultithreadedSum() = default;
-
-	void runTask(int blockIndex, int numBlocks) noexcept override {
-		if (!numBlocks) {
-			return;
-		}
-		const uint64_t blockSize = (sumTo + numBlocks) / numBlocks;
-		const uint64_t start = blockSize * blockIndex;
-		const uint64_t end = std::min(sumTo, start + blockSize);
-		for (uint64_t i = start; i < end; ++i) {
-			threadSum[blockIndex] += i;
-		}
-	}
-
-	uint64_t reduce() const {
-		return std::accumulate(threadSum.begin(), threadSum.end(), uint64_t(0));
-	}
-private:
-	std::vector<uint64_t> threadSum;
-	uint64_t sumTo;
-};
-
 class MultithreadedSumFunctor {
 public:
 	MultithreadedSumFunctor(int numBlocks, uint64_t sumTo) :
@@ -146,8 +117,8 @@ TEST(ThreadManagerBasic, SumAsync) {
 		CPPTM::ThreadManager manager;
 		const int numWorkers = manager.getNumWorkers();
 		const uint64_t sumTo = 999994;
-		MultithreadedSum sumJob(numWorkers, sumTo);
-		manager.launchAsync(&sumJob);
+		MultithreadedSumFunctor sumJob(numWorkers, sumTo);
+		manager.launchAsync(sumJob);
 		manager.sync();
 		const uint64_t res = expectedSumResult(sumTo);
 		EXPECT_EQ(sumJob.reduce(), res);
