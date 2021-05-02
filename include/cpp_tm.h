@@ -87,7 +87,6 @@ namespace CPPTM {
 		void launchSync(TFunctor&& task, int numBlocks);
 
 		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job.
-		/// Use this signature when the caller handles the memory for the created task.
 		/// The number of blocks into which the task will be split is the same as the number of workers.
 		/// The task can be any arbitrary functor (e.g. function ptr, lambda, class) implementig operator(int, int)
 		/// @tparam TFunctor Type of the functor it must be void and take two int parameters. First is the current block index
@@ -97,7 +96,6 @@ namespace CPPTM {
 		void launchAsync(TFunctor&& task);
 
 		/// @brief Run a task in the pool and do not wait for it to finish. The thread which calls this is free to continue its job. 
-		/// Use this signature when the caller handles the memory for the created task.
 		/// The task can be any arbitrary functor (e.g. function ptr, lambda, class) implementig operator(int, int)
 		/// @tparam TFunctor Type of the functor it must be void and take two int parameters. First is the current block index
 		/// and the second is the total number of blocks
