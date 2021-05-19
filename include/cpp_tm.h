@@ -382,6 +382,16 @@ namespace CPPTM {
 
 	}
 
+	struct LoopBlockData {
+		LoopBlockData(const int blockIndex, const int numBlocks, const int totalLoopSize) {
+			const int blockSize = (totalLoopSize + numBlocks) / numBlocks;
+			start = blockIndex * blockSize;
+			end = std::min(start + blockSize, totalLoopSize);
+		}
+		int start;
+		int end;
+	};
+
 	/// @brief Return reference to a global thread manager 
 	/// The global thread manager is statically initialized when this functions gets called for the first time
 	/// @return Return reference to a global thread manager 
