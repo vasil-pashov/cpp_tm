@@ -41,19 +41,27 @@ namespace CPPTM {
 			}
 		}
 	private:
-		unsigned const count; ///< Total number of threads which can wait on the barrier
-		unsigned spaces; ///< Number of free slots in the barrier. Initialized with count and goes down on each wait. When 0 all threads are released.
-		/// Counts how many times the barrier was released. It is used to distinguish calls to wait, which release the barrier and the ones waiting on it
-		/// Also used in the predicate of the cv to avoid spurious wakes
+		/// Total number of threads which can wait on the barrier
+		unsigned const count;
+		/// Number of free slots in the barrier. Initialized with count and goes down on each wait. When 0 all threads are released.
+		unsigned spaces;
+		/// Counts how many times the barrier was released. It is used to distinguish calls to wait, which release the barrier and
+		/// the ones waiting on it. Also used in the predicate of the cv to avoid spurious wakes
 		unsigned generation; 
-		std::condition_variable cv; ///< Conditional variable on which the waiting threads sleep
-		std::mutex m; ///< Used by the conditional variable on which the waiting threads sleep 
+		/// Conditional variable on which the waiting threads sleep
+		std::condition_variable cv;
+		/// Used by the conditional variable on which the waiting threads sleep
+		std::mutex m; 
 	};
 
 	/// @brief Thread manager class, keeping a pool of threads which can execute tasks in parallel
 	class ThreadManager {
 	public:
+		/// Create the thread manager with default number of threads based on computer hardware
+		/// This will spawn one thread less than the maximul threads supported by the CPU. This is
+		/// done in order to account that the main thread is also running.
 		ThreadManager();
+		/// Create thread manager by spawning exactly numThreads.
 		ThreadManager(int numThreads);
 		// Copy Semantics
 		ThreadManager(const ThreadManager&) = delete;
@@ -108,12 +116,19 @@ namespace CPPTM {
 		/// IMPORTANT: It is NOT safe to call this from a worker thread.
 		void sync();
 		
-		/// @brief Get the number of worker threads in the pool
-		/// @return Number of working threads in the pool
-		const int getNumWorkers() const {
-			return workers.size();
-		}
+		/// @brief Get the number of worker threads in the pool including the calling (main) thread
+		/// @return Number of spawned threads plus one (to account for the calling thread)
+		int getWorkersCount() const;
+
+		/// Return the number of threads which the pool spawned and holds internally. Does not include the calling thread.
+		/// @return Number of threads which the pool has spawned.
+		int getSpawnedThreadsCount() const;
+		
 	private:
+		enum ThreadIndex {
+			callingThreadIndex = -1
+		};
+
 		/// @brief Abstract interface for a task which can be submitted to ThreadManager
 		class ITask {
 		public:
@@ -164,18 +179,6 @@ namespace CPPTM {
 		/// @brief Main loop for each worker
 		/// @param threadIndex The index of the worker inside ThreadManager::workers array
 		void threadLoop(int threadIndex);
-
-		/// @brief Notify all threads which called sync or lauchSync that the barrier has been reached by all threads
-		void notifySyncLaunchDone() {
-			syncDone.clear(std::memory_order_release);
-			syncCv.notify_one();
-		}
-
-		/// @brief Called by sync and launcSync. Waits all threads to reach the first barrier in the command queue.
-		void waitSyncToHappen() {
-			std::unique_lock<std::mutex> lock(syncMut);
-			syncCv.wait(lock, [&]() {return !syncDone.test_and_set(std::memory_order_acq_rel); });
-		}
 
 		/// @brief Wrapper around Task interface which carriers internal data needed by the ThreadManager class
 		struct TaskInfo {
@@ -240,33 +243,29 @@ namespace CPPTM {
 			return TaskInfo(type, barrierId.fetch_add(1));
 		}
 
-		std::vector<std::thread> workers; ///< All threads which are in the pool
-		std::condition_variable hasTasksCv; ///< Threads wait on this cv for task to be submitted into the pool
-		std::mutex taskMutex; ///< Used to synchronize adding and popping tasks from the task queue, hasTasksCv uses this
-		std::queue<TaskInfo> tasks; ///< Queue with tasks waiting to be computed by the workers in the pool
-		Barrier barrier; ///< Used to synchronize the threads in the pool when a barrier task is added.
-
-		std::condition_variable syncCv; ///< Calls to sync and launchSync wait on this
-		std::mutex syncMut; ///< Used by syncCv
-		/// Used in the predicate of syncCv to avoid spurious wake. When the flag is set this means that there could be working threads
-		/// When the task barrier is reached this flag is cleared. The predicate of syncCv waits until the flag is cleared and sets
-		/// it again after that.
-		std::atomic_flag syncDone = ATOMIC_FLAG_INIT;
-
+		/// All threads which are in the pool
+		std::vector<std::thread> workers;
+		/// Threads wait on this cv for task to be submitted into the pool
+		std::condition_variable hasTasksCv;
+		/// Used to synchronize adding and popping tasks from the task queue, hasTasksCv uses this
+		std::mutex taskMutex;
+		/// Queue with tasks waiting to be computed by the workers in the pool
+		std::queue<TaskInfo> tasks;
+		/// Used to synchronize the threads in the pool when a barrier task is added.
+		Barrier barrier;
 		/// When a barrier is put in the pool it takes the current barrierId as id and increments barrierId by one
 		/// It is safe to warp to 0 again.
 		std::atomic<unsigned> barrierId;
 	};
 
 	inline ThreadManager::ThreadManager() :
-		ThreadManager(std::thread::hardware_concurrency()) {
+		ThreadManager(std::thread::hardware_concurrency() - 1) {
 	}
 
 	inline ThreadManager::ThreadManager(int numThreads) : 
-		barrier(numThreads),
+		barrier(numThreads + 1),
 		barrierId(0)
 	{
-		syncDone.test_and_set(std::memory_order::memory_order_release);
 		workers.reserve(numThreads);
 		for (int i = 0; i < numThreads; ++i) {
 			workers.emplace_back(&ThreadManager::threadLoop, this, i);
@@ -284,7 +283,19 @@ namespace CPPTM {
 				w.join();
 			}
 		}
-		assert(tasks.empty());
+		assert(
+			tasks.size() == 1 &&
+			tasks.front().task == nullptr &&
+			tasks.front().getType() == TaskInfo::Type::abort
+		);
+	}
+
+	inline int ThreadManager::getWorkersCount() const {
+		return workers.size() + 1;
+	}
+
+	inline int ThreadManager::getSpawnedThreadsCount() const {
+		return workers.size();
 	}
 
 	inline void ThreadManager::threadLoop(int threadIndex) {
@@ -313,6 +324,14 @@ namespace CPPTM {
 
 				l.unlock();
 
+				// If we hit abbort barrier we exit from the loop. There is no need to sync using the barrier
+				// since we put abort only in the destructor and the destructor uses join for all worker threads.
+				// This joins plays the role of a barrier.
+				if(type == TaskInfo::Type::abort) {
+					return;
+				}
+
+				// Note the barrier will sync all worker threads AND the calling thread.
 				barrier.wait();
 
 				l.lock();
@@ -320,9 +339,14 @@ namespace CPPTM {
 					// First thread released by the barrier deletes the barrier from the queue
 					tasks.pop();
 					l.unlock();
-					notifySyncLaunchDone();
 				}
-				if (type == TaskInfo::Type::abort) {
+
+				// Up to this point all threads were synchronized by the barrier. The call which was made
+				// was either ThreadManager::sync or ThreadManager::launchSync, no other tasks are on the queue
+				// The calling thread must exit the loop here, so that it can continue executing main code.
+				// If it does not exit here it will sleep on the conditional variable at the beggining of the loop
+				// and the code will stall forever.
+				if(threadIndex == callingThreadIndex) {
 					return;
 				}
 			}
@@ -333,7 +357,7 @@ namespace CPPTM {
 
 	template<typename TFunctor>
 	inline void ThreadManager::launchSync(TFunctor&& task) {
-		launchSync(std::forward<TFunctor>(task), workers.size());
+		launchSync(std::forward<TFunctor>(task), getWorkersCount());
 	}
 
 	template<typename TFunctor>
@@ -347,15 +371,13 @@ namespace CPPTM {
 		tasks.push(std::move(getBarrier(TaskInfo::Type::barrier)));
 		l.unlock();
 		hasTasksCv.notify_all();
-
-		waitSyncToHappen();
-		assert(tasks.empty());
+		threadLoop(callingThreadIndex);
 	}
 
 
 	template<typename TFunctor>
 	inline void ThreadManager::launchAsync(TFunctor&& task) {
-		launchAsync(std::forward<TFunctor>(task), workers.size());
+		launchAsync(std::forward<TFunctor>(task), getSpawnedThreadsCount());
 	}
 
 	template<typename TFunctor>
@@ -372,14 +394,13 @@ namespace CPPTM {
 	}
 
 	inline void ThreadManager::sync() {
-		TaskInfo ti = getBarrier(TaskInfo::Type::barrier);
+		TaskInfo syncBarrier = getBarrier(TaskInfo::Type::barrier);
 		{
 			std::lock_guard<std::mutex> l(taskMutex);
-			tasks.push(ti);
+			tasks.push(syncBarrier);
 		}
 		hasTasksCv.notify_all();
-		waitSyncToHappen();
-
+		threadLoop(callingThreadIndex);
 	}
 
 	struct LoopBlockData {

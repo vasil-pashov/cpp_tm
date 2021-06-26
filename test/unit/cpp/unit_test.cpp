@@ -62,7 +62,7 @@ TEST(ThreadManagerBasic, Sync) {
 TEST(ThreadManagerBasic, SumEmpty) {
 	repeatTest(numReps, []() {
 		CPPTM::ThreadManager manager;
-		const int numWorkers = manager.getNumWorkers();
+		const int numWorkers = manager.getWorkersCount();
 		const uint64_t sumTo = 0;
 		const int numBlocks = 0;
 		MultithreadedSumFunctor sumJob(numWorkers, sumTo);
@@ -89,7 +89,7 @@ TEST(ThreadManagerBasic, SumBlockSizeLessThanThreads) {
 TEST(ThreadManagerBasic, SumDefaultBlockSize) {
 	repeatTest(numReps, []() {
 		CPPTM::ThreadManager manager;
-		const int numWorkers = manager.getNumWorkers();
+		const int numWorkers = manager.getWorkersCount();
 		const uint64_t sumTo = 999994;
 		MultithreadedSumFunctor sumJob(numWorkers, sumTo);
 		manager.launchSync(sumJob);
@@ -115,7 +115,32 @@ TEST(ThreadManagerBasic, SumBlockSizeLargerThanThreads) {
 TEST(ThreadManagerBasic, SumAsync) {
 	repeatTest(numReps, []() {
 		CPPTM::ThreadManager manager;
-		const int numWorkers = manager.getNumWorkers();
+		const int numWorkers = manager.getWorkersCount();
+		const uint64_t sumTo = 999994;
+		MultithreadedSumFunctor sumJob(numWorkers, sumTo);
+		manager.launchAsync(sumJob);
+		manager.sync();
+		const uint64_t res = expectedSumResult(sumTo);
+		EXPECT_EQ(sumJob.reduce(), res);
+	});
+}
+
+TEST(ThreadManagerBasic, SumSynchSingleThread) {
+	repeatTest(numReps, []() {
+		CPPTM::ThreadManager manager(1);
+		const int numWorkers = manager.getWorkersCount();
+		const uint64_t sumTo = 999994;
+		MultithreadedSumFunctor sumJob(numWorkers, sumTo);
+		manager.launchSync(sumJob);
+		const uint64_t res = expectedSumResult(sumTo);
+		EXPECT_EQ(sumJob.reduce(), res);
+	});
+}
+
+TEST(ThreadManagerBasic, SumAsyncSingleThread) {
+	repeatTest(numReps, []() {
+		CPPTM::ThreadManager manager(1);
+		const int numWorkers = manager.getWorkersCount();
 		const uint64_t sumTo = 999994;
 		MultithreadedSumFunctor sumJob(numWorkers, sumTo);
 		manager.launchAsync(sumJob);
@@ -188,5 +213,38 @@ TEST(ThreadManagerBasic, AddVectorsLambda) {
 		for(int i = 0; i < sz; ++i) {
 			ASSERT_EQ(c[i], a[i] + b[i]);
 		}
+	});
+}
+
+TEST(ThreadManagerMix, AsyncSyncLaunchShort) {
+	repeatTest(numReps, [&](){
+		CPPTM::ThreadManager manager;
+		manager.launchAsync([](int, int){});
+		manager.launchSync([](int, int){});
+	});
+}
+
+TEST(ThreadManagerMix, AsyncSyncLaunchLong) {
+	repeatTest(numReps, [&](){
+		CPPTM::ThreadManager manager;
+		manager.launchAsync([](int, int){
+			std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(50));
+		});
+		manager.launchSync([](int, int){
+			std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(50));
+		});
+	});
+}
+
+TEST(ThreadManagerMix, DifferentAsyncSizes) {
+	repeatTest(numReps, [&](){
+		CPPTM::ThreadManager manager;
+		manager.launchAsync([](int, int){
+			std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(50));
+		});
+		manager.launchAsync([](int, int){
+			std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(50));
+		}, manager.getWorkersCount());
+		manager.sync();
 	});
 }
